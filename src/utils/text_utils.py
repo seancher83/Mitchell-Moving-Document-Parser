@@ -33,17 +33,33 @@ def extract_field_value(text: str, field_label: str, multiline: bool = False) ->
 
 
 def extract_bl_number(text: str) -> Optional[str]:
-    """Extract Bill of Lading number."""
-    # Look for B/L NO. followed by alphanumeric code
-    patterns = [
-        r'B/L\s*NO\.?\s*([A-Z0-9]+)',
-        r'BILL OF LADING.*?([A-Z]{4}\d{7})',
-    ]
+    """
+    Extract Bill of Lading number.
 
-    for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
+    B/L numbers typically follow the format: 4 letters + 7 digits (e.g., LKNQ0540823)
+    """
+    # Pattern 1: Standard B/L format - 4 letters followed by 7 digits
+    # This is the most reliable pattern for GBL documents
+    pattern_standard = r'\b([A-Z]{4}\d{7})\b'
+    match = re.search(pattern_standard, text)
+    if match:
+        return match.group(1).strip()
+
+    # Pattern 2: Look near "B/L NO." label (fallback)
+    pattern_label = r'B/L\s*NO\.?\s*[:.]?\s*([A-Z0-9]{4,})'
+    match = re.search(pattern_label, text, re.IGNORECASE)
+    if match:
+        bl_num = match.group(1).strip()
+        # Verify it's not just a single digit or short code
+        if len(bl_num) >= 4:
+            return bl_num
+
+    # Pattern 3: Near "BILL OF LADING" text (fallback)
+    pattern_bol = r'BILL OF LADING.*?B/L\s*NO\.?\s*[:.]?\s*([A-Z0-9]{4,})'
+    match = re.search(pattern_bol, text, re.IGNORECASE | re.DOTALL)
+    if match:
+        return match.group(1).strip()
+
     return None
 
 

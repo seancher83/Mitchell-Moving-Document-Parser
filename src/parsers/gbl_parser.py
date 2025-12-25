@@ -9,16 +9,16 @@ from typing import Dict, Any, Optional
 import re
 
 # Try to import PDF libraries
+# Prefer PyPDF2 since extraction functions are optimized for its text format
 try:
-    import pdfplumber
-    PDF_LIBRARY = "pdfplumber"
+    from PyPDF2 import PdfReader
+    PDF_LIBRARY = "pypdf2"
 except ImportError:
-    pdfplumber = None
     try:
-        from PyPDF2 import PdfReader
-        PDF_LIBRARY = "pypdf2"
+        import pdfplumber
+        PDF_LIBRARY = "pdfplumber"
     except ImportError:
-        raise ImportError("Either pdfplumber or PyPDF2 is required. Install with: pip install PyPDF2")
+        raise ImportError("Either PyPDF2 or pdfplumber is required. Install with: pip install PyPDF2")
 try:
     from ..utils.text_utils import (
         extract_bl_number,

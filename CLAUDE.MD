@@ -111,16 +111,19 @@ pytest tests/test_parsers.py
 ## Data to Extract
 
 ### Customer Information
-- Name, contact details
+- Name
 - GBL Number
-- Start Date
-- RDD Date
+- Requested Packing Date
+- Requested Pickup Date
+- Required Delivery Date
 - Pickup and delivery addresses
+- Service Code
+- SCAC
+- Tariff Rates
 
 ### Moving Details
 - Move date(s)
 - Origin and destination
-- Distance
 - Special requirements
 
 ### Inventory

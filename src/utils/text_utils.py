@@ -84,6 +84,85 @@ def extract_date(text: str, field_label: str) -> Optional[str]:
     return None
 
 
+def extract_all_dates(text: str) -> List[str]:
+    """
+    Extract all dates in YYYYMMDD format from the text.
+
+    Returns:
+        List of date strings found
+    """
+    pattern = r'\b(20\d{6})\b'
+    matches = re.findall(pattern, text)
+    return matches
+
+
+def extract_gbl_dates(text: str) -> dict:
+    """
+    Extract specific GBL dates based on document structure and context.
+
+    In GBL documents, dates appear in specific positions:
+    - Requested Packing/Pickup dates: appear early, near "LOT" and before B/L number
+    - Required Delivery Date: appears near customer info
+    - Date of Order: appears near service branch
+    - Date B/L Printed: appears near "ORIGINAL"
+
+    Returns:
+        Dictionary with extracted dates
+    """
+    dates = {
+        "requested_packing_date": None,
+        "requested_pickup_date": None,
+        "required_delivery_date": None,
+        "date_of_order": None,
+        "date_bl_printed": None,
+        "date_of_receipt": None,
+    }
+
+    all_dates = extract_all_dates(text)
+    if not all_dates:
+        return dates
+
+    # Date B/L Printed - appears near "ORIGINAL" marker (before or after)
+    match = re.search(r'(\d{8})[^\d]{0,20}ORIGINAL', text, re.IGNORECASE)
+    if match:
+        dates["date_bl_printed"] = match.group(1)
+    else:
+        # Try after ORIGINAL as fallback
+        match = re.search(r'ORIGINAL[^\d]*(\d{8})', text, re.IGNORECASE)
+        if match:
+            dates["date_bl_printed"] = match.group(1)
+
+    # Date of Order - appears near service branch or "BUPERS"  / military command
+    match = re.search(r'(?:United States (?:Air Force|Army|Navy|Marine Corps|Coast Guard)|BUPERS|ARPC)[^\d]{0,50}(\d{8})', text, re.IGNORECASE)
+    if match:
+        dates["date_of_order"] = match.group(1)
+
+    # Requested Packing/Pickup Date - appears near "LOT" and package count
+    # This is typically the first date after "LOT"
+    match = re.search(r'LOT[^\d]*(\d+)[^\d]*(\d{8})', text)
+    if match:
+        packing_date = match.group(2)
+        dates["requested_packing_date"] = packing_date
+        dates["requested_pickup_date"] = packing_date  # Often the same
+
+    # Required Delivery Date - Look for 8-digit date near customer name or between customer and GBLOC
+    # This is often a different date than packing/pickup
+    # Try to find a date that appears after customer info but before "GBLOC" or "BILL OF LADING"
+    match = re.search(r'(?:WOD|WD)[^\d]*(\d{8})', text)
+    if match:
+        delivery_date = match.group(1)
+        # Make sure it's different from packing date
+        if delivery_date != dates["requested_packing_date"]:
+            dates["required_delivery_date"] = delivery_date
+
+    # Date of Receipt - near "DATE OF RECEIPT" text or receipt shipment
+    match = re.search(r'(?:DATE OF RECEIPT|RECEIPT OF SHIPMENT)[^\d]*(\d{8})', text, re.IGNORECASE)
+    if match:
+        dates["date_of_receipt"] = match.group(1)
+
+    return dates
+
+
 def extract_scac_code(text: str) -> Optional[str]:
     """Extract SCAC (Standard Carrier Alpha Code)."""
     # SCAC is typically 2-4 letter code

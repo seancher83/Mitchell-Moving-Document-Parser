@@ -112,8 +112,10 @@ pytest tests/test_parsers.py
 
 ### Customer Information
 - Name, contact details
+- GBL Number
+- Start Date
+- RDD Date
 - Pickup and delivery addresses
-- Phone, email
 
 ### Moving Details
 - Move date(s)

@@ -164,13 +164,106 @@ def extract_gbl_dates(text: str) -> dict:
 
 
 def extract_scac_code(text: str) -> Optional[str]:
-    """Extract SCAC (Standard Carrier Alpha Code)."""
-    # SCAC is typically 2-4 letter code
-    pattern = r'SCAC\s*[:.]?\s*([A-Z]{2,4})'
+    """
+    Extract SCAC (Standard Carrier Alpha Code).
+
+    SCAC appears as a 2-4 letter code, often on its own line after
+    the transportation company name in parentheses.
+    """
+    # Pattern 1: After company name in parentheses, SCAC appears on next line
+    # Example: "(SAV ON MOVING & STORAGE)\nSDDA"
+    pattern_after_parens = r'\([^)]+\)\s*\n\s*([A-Z]{2,4})\s*\n'
+    match = re.search(pattern_after_parens, text)
+    if match:
+        scac = match.group(1).strip()
+        # Make sure it's not a common word
+        if scac not in ['GOOD', 'ITEM', 'FROM', 'DATE', 'NAME']:
+            return scac
+
+    # Pattern 2: Specifically look for 4-letter codes near "SCAC"
+    # Some documents have: "2. SCAC\n\nMCHO"
+    pattern_near_label = r'SCAC[^\n]*\n[^\n]*\n\s*([A-Z]{2,4})'
+    match = re.search(pattern_near_label, text)
+    if match:
+        return match.group(1).strip()
+
+    # Pattern 3: Direct match near SCAC label (close proximity)
+    pattern = r'SCAC[:\s]+([A-Z]{2,4})\b'
     match = re.search(pattern, text)
     if match:
         return match.group(1).strip()
+
     return None
+
+
+def extract_service_code_gbl(text: str) -> Optional[str]:
+    """
+    Extract Service Code from GBL document.
+
+    Service code (typically single letter like 'D') appears after the
+    service branch and date of order in GBL documents.
+    """
+    # Pattern: After service branch and date, before authority
+    # Example: "United States Air Force\n20230320\nD\nAA8HNT ARPC"
+    pattern = r'United States (?:Air Force|Army|Navy|Marine Corps|Coast Guard)[^\n]*\n\d{8}\n([A-Z])\n'
+    match = re.search(pattern, text)
+    if match:
+        return match.group(1).strip()
+
+    # Fallback: Look for single letter after 8-digit date near service branch
+    pattern2 = r'(?:Air Force|Army|Navy|Marine Corps|Coast Guard)[^\n]*\n\d{8}\n([A-Z])'
+    match = re.search(pattern2, text, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+
+    return None
+
+
+def extract_zip_codes(text: str) -> dict:
+    """
+    Extract origin and destination zip codes from addresses.
+
+    Returns:
+        Dictionary with 'origin_zip' and 'destination_zip'
+    """
+    zips = {"origin_zip": None, "destination_zip": None}
+
+    # Find all 5-digit zip codes
+    all_zips = re.findall(r'\b(\d{5})\b', text)
+
+    if len(all_zips) >= 2:
+        # Typically origin appears in "FROM" section, destination in "CONSIGNEE"
+        # Look for zip near "FROM" or origin address markers
+        from_match = re.search(r'(?:FROM|EL PASO|RIVERSIDE)[^\n]{0,100}(\d{5})', text, re.IGNORECASE)
+        if from_match:
+            zips["origin_zip"] = from_match.group(1)
+
+        # Look for zip near "CONSIGNEE" or destination markers
+        to_match = re.search(r'(?:CONSIGNEE|McChord|JBLM|DENVER)[^\n]{0,100}(\d{5})', text, re.IGNORECASE)
+        if to_match:
+            zips["destination_zip"] = to_match.group(1)
+
+    return zips
+
+
+def extract_tariff_rates(text: str) -> dict:
+    """
+    Extract tariff or special rate authorities (LH and SIT percentages).
+
+    Returns:
+        Dictionary with 'lh_rate' and 'sit_rate'
+    """
+    rates = {"lh_rate": None, "sit_rate": None}
+
+    # Pattern: "LH 67 % SIT 63 %"  or "LH 67% SIT 63%"
+    pattern = r'LH\s*(\d+)\s*%.*?SIT\s*(\d+)\s*%'
+    match = re.search(pattern, text, re.IGNORECASE)
+
+    if match:
+        rates["lh_rate"] = match.group(1) + "%"
+        rates["sit_rate"] = match.group(2) + "%"
+
+    return rates
 
 
 def extract_rank_and_grade(text: str) -> Tuple[Optional[str], Optional[str]]:

@@ -1,0 +1,22 @@
+# Core PDF Processing
+pdfplumber>=0.10.0
+PyPDF2>=3.0.0
+
+# OCR for scanned documents
+pytesseract>=0.3.10
+Pillow>=10.0.0
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Date and Text Processing
+python-dateutil>=2.8.2
+regex>=2023.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Utilities
+python-dotenv>=1.0.0

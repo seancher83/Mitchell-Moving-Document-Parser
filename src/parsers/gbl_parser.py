@@ -19,18 +19,40 @@ except ImportError:
         PDF_LIBRARY = "pypdf2"
     except ImportError:
         raise ImportError("Either pdfplumber or PyPDF2 is required. Install with: pip install PyPDF2")
-from ..utils.text_utils import (
-    extract_bl_number,
-    extract_date,
-    extract_scac_code,
-    extract_rank_and_grade,
-    extract_gbloc,
-    extract_shipment_number,
-    extract_service_code,
-    extract_field_value,
-    extract_code_field,
-    clean_text,
-)
+try:
+    from ..utils.text_utils import (
+        extract_bl_number,
+        extract_date,
+        extract_scac_code,
+        extract_service_code_gbl,
+        extract_rank_and_grade,
+        extract_gbloc,
+        extract_shipment_number,
+        extract_service_code,
+        extract_field_value,
+        extract_code_field,
+        extract_gbl_dates,
+        extract_zip_codes,
+        extract_tariff_rates,
+        clean_text,
+    )
+except ImportError:
+    from utils.text_utils import (
+        extract_bl_number,
+        extract_date,
+        extract_scac_code,
+        extract_service_code_gbl,
+        extract_rank_and_grade,
+        extract_gbloc,
+        extract_shipment_number,
+        extract_service_code,
+        extract_field_value,
+        extract_code_field,
+        extract_gbl_dates,
+        extract_zip_codes,
+        extract_tariff_rates,
+        clean_text,
+    )
 
 
 class GBLParser:
@@ -98,12 +120,15 @@ class GBLParser:
 
     def _extract_header_info(self, text: str) -> None:
         """Extract header information (GBL number, dates, etc.)."""
+        # Extract dates using the comprehensive date extraction
+        dates = extract_gbl_dates(text)
+
         self.data["header"] = {
             "gbl_number": extract_bl_number(text),
-            "date_bl_printed": extract_date(text, "DATE B/L PRINTED"),
+            "date_bl_printed": dates.get("date_bl_printed"),
             "shipment_number": extract_shipment_number(text),
             "scac_code": extract_scac_code(text),
-            "service_code": extract_service_code(text),
+            "service_code": extract_service_code_gbl(text),
             "transportation_company": self._extract_transportation_company(text),
             "gbloc_codes": extract_gbloc(text),
         }
@@ -122,15 +147,28 @@ class GBLParser:
 
     def _extract_shipment_details(self, text: str) -> None:
         """Extract shipment details (origin, destination, dates)."""
+        # Extract all dates
+        dates = extract_gbl_dates(text)
+
+        # Extract zip codes
+        zips = extract_zip_codes(text)
+
+        # Extract tariff rates
+        rates = extract_tariff_rates(text)
+
         self.data["shipment"] = {
             "origin": self._extract_origin_address(text),
             "destination": self._extract_destination_address(text),
-            "requested_packing_date": extract_date(text, "REQUESTED PACKING DATE"),
-            "requested_pickup_date": extract_date(text, "REQUESTED PICKUP DATE"),
-            "required_delivery_date": extract_date(text, "REQUIRED DELIVERY DATE"),
-            "date_of_receipt": extract_date(text, "DATE OF RECEIPT OF SHIPMENT"),
+            "origin_zip": zips.get("origin_zip"),
+            "destination_zip": zips.get("destination_zip"),
+            "requested_packing_date": dates.get("requested_packing_date"),
+            "requested_pickup_date": dates.get("requested_pickup_date"),
+            "required_delivery_date": dates.get("required_delivery_date"),
+            "date_of_receipt": dates.get("date_of_receipt"),
             "authority": extract_field_value(text, "AUTHORITY FOR SHIPMENT"),
-            "date_of_order": extract_date(text, "DATE OF ORDER"),
+            "date_of_order": dates.get("date_of_order"),
+            "tariff_lh_rate": rates.get("lh_rate"),
+            "tariff_sit_rate": rates.get("sit_rate"),
         }
 
     def _extract_origin_address(self, text: str) -> Optional[str]:

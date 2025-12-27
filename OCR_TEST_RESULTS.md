@@ -111,7 +111,7 @@ OCR text length: 4149 chars
 
 **Extracted Fields:**
 - B/L Number: MLNQ0647700 ✅
-- SCAC: ONI ✅
+- SCAC: NFWD ✅
 - Origin Zip: 77503 ✅
 - Destination Zip: 78236 ✅
 
@@ -138,7 +138,7 @@ OCR text length: 4226 chars
 
 **Extracted Fields:**
 - B/L Number: MLNQ0647517 ✅
-- SCAC: EIN ✅
+- SCAC: NFWD ✅
 - Origin Zip: 70301 ✅
 - Destination Zip: 32212 ✅
 

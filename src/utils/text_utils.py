@@ -186,6 +186,16 @@ def extract_scac_code(text: str) -> Optional[str]:
     SCAC appears as a 2-4 letter code, often on its own line after
     the transportation company name in parentheses.
     """
+    # Pattern 0: OCR format - After company name in parens, space, then SCAC, space, number
+    # Example: "(Worldwide Moving & Storage, Inc.) NFWD 4 2/2"
+    pattern_ocr = r'\([^)]+\)\s+([A-Z]{2,4})\s+\d'
+    match = re.search(pattern_ocr, text)
+    if match:
+        scac = match.group(1).strip()
+        # Make sure it's not a common word
+        if scac not in ['GOOD', 'ITEM', 'FROM', 'DATE', 'NAME', 'CODE']:
+            return scac
+
     # Pattern 1: After company name in parentheses, SCAC appears on next line
     # Example: "(SAV ON MOVING & STORAGE)\nSDDA"
     pattern_after_parens = r'\([^)]+\)\s*\n\s*([A-Z]{2,4})\s*\n'

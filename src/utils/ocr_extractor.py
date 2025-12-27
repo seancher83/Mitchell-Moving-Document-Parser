@@ -93,8 +93,18 @@ class GBLFormExtractor:
             print("Extracting fields using pattern matching...")
             pattern_data = self._extract_by_patterns(self.full_text)
 
-            # Merge results (coordinate-based takes precedence if both exist)
-            merged_data = {**pattern_data, **coordinate_data}
+            # Merge results with smart precedence
+            # Pattern matching is more reliable for: SCAC, B/L number, dates, zips
+            # Coordinate extraction is better for: small fields, specific positions
+            merged_data = {**coordinate_data, **pattern_data}
+
+            # For fields where both methods found a value, prefer pattern matching
+            # for text-based fields and coordinate extraction for position-specific fields
+            reliable_pattern_fields = ['scac', 'bl_number', 'origin_zip', 'destination_zip']
+            for field in reliable_pattern_fields:
+                if field in pattern_data and pattern_data[field]:
+                    merged_data[field] = pattern_data[field]
+
             merged_data['method'] = 'ocr'
             merged_data['success'] = True
             merged_data['ocr_text_length'] = len(self.full_text)

@@ -131,13 +131,19 @@ def extract_gbl_dates(text: str) -> dict:
         match = re.search(r'ORIGINAL[^\d]*(\d{8})', text, re.IGNORECASE)
         if match:
             dates["date_bl_printed"] = match.group(1)
+        else:
+            # Door to Door format: Date appears after shipment number fraction (e.g., "3/3\n20251126")
+            match = re.search(r'\d+/\d+\s*\n\s*(\d{8})', text)
+            if match:
+                dates["date_bl_printed"] = match.group(1)
 
     # Date of Order - appears near service branch or "BUPERS"  / military command
     match = re.search(r'(?:United States (?:Air Force|Army|Navy|Marine Corps|Coast Guard)|BUPERS|ARPC)[^\d]{0,50}(\d{8})', text, re.IGNORECASE)
     if match:
         dates["date_of_order"] = match.group(1)
 
-    # Requested Packing/Pickup Date - appears near "LOT" and package count
+    # Requested Packing/Pickup/Delivery Dates
+    # Format 1: Near "LOT" marker - appears near "LOT" and package count
     # This is typically the first date after "LOT"
     match = re.search(r'LOT[^\d]*(\d+)[^\d]*(\d{8})', text)
     if match:
@@ -145,15 +151,25 @@ def extract_gbl_dates(text: str) -> dict:
         dates["requested_packing_date"] = packing_date
         dates["requested_pickup_date"] = packing_date  # Often the same
 
+    # Format 2: Door to Door Moving format - three dates on separate lines after B/L code
+    # Pattern: "KKFA\n20251201\n20251201\n20251223"
+    pattern_three_dates = r'[A-Z]{4}\s*\n\s*(\d{8})\s*\n\s*(\d{8})\s*\n\s*(\d{8})'
+    match = re.search(pattern_three_dates, text)
+    if match and not dates["requested_packing_date"]:
+        dates["requested_packing_date"] = match.group(1)
+        dates["requested_pickup_date"] = match.group(2)
+        dates["required_delivery_date"] = match.group(3)
+
     # Required Delivery Date - Look for 8-digit date near customer name or between customer and GBLOC
     # This is often a different date than packing/pickup
     # Try to find a date that appears after customer info but before "GBLOC" or "BILL OF LADING"
-    match = re.search(r'(?:WOD|WD)[^\d]*(\d{8})', text)
-    if match:
-        delivery_date = match.group(1)
-        # Make sure it's different from packing date
-        if delivery_date != dates["requested_packing_date"]:
-            dates["required_delivery_date"] = delivery_date
+    if not dates["required_delivery_date"]:
+        match = re.search(r'(?:WOD|WD)[^\d]*(\d{8})', text)
+        if match:
+            delivery_date = match.group(1)
+            # Make sure it's different from packing date
+            if delivery_date != dates["requested_packing_date"]:
+                dates["required_delivery_date"] = delivery_date
 
     # Date of Receipt - near "DATE OF RECEIPT" text or receipt shipment
     match = re.search(r'(?:DATE OF RECEIPT|RECEIPT OF SHIPMENT)[^\d]*(\d{8})', text, re.IGNORECASE)
@@ -203,14 +219,20 @@ def extract_service_code_gbl(text: str) -> Optional[str]:
     Service code (typically single letter like 'D') appears after the
     service branch and date of order in GBL documents.
     """
-    # Pattern: After service branch and date, before authority
+    # Pattern 1: After service branch and date, before authority
     # Example: "United States Air Force\n20230320\nD\nAA8HNT ARPC"
     pattern = r'United States (?:Air Force|Army|Navy|Marine Corps|Coast Guard)[^\n]*\n\d{8}\n([A-Z])\n'
     match = re.search(pattern, text)
     if match:
         return match.group(1).strip()
 
-    # Fallback: Look for single letter after 8-digit date near service branch
+    # Pattern 2: Door to Door Moving format - "DORD\nD\n3/3"
+    pattern_dord = r'DORD\s*\n\s*([A-Z])\s*\n\s*\d+/\d+'
+    match = re.search(pattern_dord, text)
+    if match:
+        return match.group(1).strip()
+
+    # Pattern 3: Fallback - Look for single letter after 8-digit date near service branch
     pattern2 = r'(?:Air Force|Army|Navy|Marine Corps|Coast Guard)[^\n]*\n\d{8}\n([A-Z])'
     match = re.search(pattern2, text, re.IGNORECASE)
     if match:
@@ -228,20 +250,58 @@ def extract_zip_codes(text: str) -> dict:
     """
     zips = {"origin_zip": None, "destination_zip": None}
 
-    # Find all 5-digit zip codes
-    all_zips = re.findall(r'\b(\d{5})\b', text)
+    # Find all 5-digit zip codes with their surrounding context (state abbreviations)
+    # Pattern: State abbreviation (2 uppercase letters) followed by zip code
+    state_zip_pattern = r'\b([A-Z]{2})\s+(\d{5})\b'
+    matches = list(re.finditer(state_zip_pattern, text))
 
-    if len(all_zips) >= 2:
-        # Typically origin appears in "FROM" section, destination in "CONSIGNEE"
-        # Look for zip near "FROM" or origin address markers
-        from_match = re.search(r'(?:FROM|EL PASO|RIVERSIDE)[^\n]{0,100}(\d{5})', text, re.IGNORECASE)
-        if from_match:
-            zips["origin_zip"] = from_match.group(1)
+    if not matches:
+        return zips
 
-        # Look for zip near "CONSIGNEE" or destination markers
-        to_match = re.search(r'(?:CONSIGNEE|McChord|JBLM|DENVER)[^\n]{0,100}(\d{5})', text, re.IGNORECASE)
-        if to_match:
-            zips["destination_zip"] = to_match.group(1)
+    # Strategy: Origin zip appears near "ORIGINAL" marker (where B/L is printed)
+    # Destination zip appears near "JPPSO" or destination office markers
+
+    # Find position of key markers
+    original_pos = text.find('ORIGINAL')
+    jppso_pos = text.find('JPPSO')
+
+    # If we have both markers, use position-based extraction
+    if original_pos != -1 and jppso_pos != -1:
+        # Origin: First state+zip AFTER "ORIGINAL" marker
+        for match in matches:
+            if match.start() > original_pos:
+                zips["origin_zip"] = match.group(2)
+                break
+
+        # Destination: Last state+zip AFTER "JPPSO" marker (closest to end)
+        dest_matches = [m for m in matches if m.start() > jppso_pos]
+        if dest_matches:
+            # Get the one that appears with common destination bases
+            for match in dest_matches:
+                context = text[max(0, match.start()-50):match.end()+50]
+                if any(base in context for base in ['JOINT BASE', 'LEWIS', 'MCCHORD', 'JBLM', 'AFB']):
+                    zips["destination_zip"] = match.group(2)
+                    break
+            # If no base match, use first zip after JPPSO
+            if not zips["destination_zip"] and dest_matches:
+                zips["destination_zip"] = dest_matches[0].group(2)
+
+    # Fallback: Use context-based extraction
+    if not zips["origin_zip"]:
+        # Look for zip near ORIGINAL or before first JPPSO mention
+        for match in matches:
+            context = text[max(0, match.start()-80):match.end()+20]
+            if 'ORIGINAL' in context:
+                zips["origin_zip"] = match.group(2)
+                break
+
+    if not zips["destination_zip"]:
+        # Look for zip near destination keywords
+        for match in matches:
+            context = text[max(0, match.start()-80):match.end()+20]
+            if any(keyword in context for keyword in ['JOINT BASE', 'JPPSO', 'MCCHORD', 'LEWIS', 'AFB', 'FORT ']):
+                zips["destination_zip"] = match.group(2)
+                break
 
     return zips
 

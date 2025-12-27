@@ -36,6 +36,8 @@ try:
         extract_tariff_rates,
         clean_text,
     )
+    from ..utils.pdf_detector import detect_pdf_type, is_scanned_pdf
+    from ..utils.ocr_extractor import GBLFormExtractor, check_ocr_availability
 except ImportError:
     from utils.text_utils import (
         extract_bl_number,
@@ -53,6 +55,8 @@ except ImportError:
         extract_tariff_rates,
         clean_text,
     )
+    from utils.pdf_detector import detect_pdf_type, is_scanned_pdf
+    from utils.ocr_extractor import GBLFormExtractor, check_ocr_availability
 
 
 class GBLParser:
@@ -83,6 +87,109 @@ class GBLParser:
         """
         print(f"Parsing GBL document: {self.file_path.name}")
 
+        # Step 1: Detect if PDF is scanned or text-based
+        pdf_type, metadata = detect_pdf_type(str(self.file_path))
+        print(f"  PDF Type: {pdf_type.upper()} (confidence: {metadata.get('confidence', 'unknown')})")
+        print(f"  Text length: {metadata.get('text_length', 0)} chars, Avg per page: {metadata.get('avg_chars_per_page', 0):.0f}")
+
+        self.data["pdf_type"] = pdf_type
+        self.data["detection_metadata"] = metadata
+
+        # Step 2: Choose extraction method based on PDF type
+        if pdf_type == 'scanned':
+            print("  → Using OCR extraction method...")
+            return self._parse_with_ocr()
+        else:
+            print("  → Using standard text extraction method...")
+            return self._parse_text_based()
+
+    def _parse_with_ocr(self) -> Dict[str, Any]:
+        """
+        Parse scanned GBL document using OCR.
+
+        Returns:
+            Dictionary containing extracted GBL data
+        """
+        # Check OCR availability
+        ocr_status = check_ocr_availability()
+        if not ocr_status['ocr_available']:
+            print(f"  ⚠️  OCR libraries not available!")
+            print(f"  Missing packages: {', '.join(ocr_status['missing_packages'])}")
+            print(f"  Install with: pip install pytesseract pdf2image Pillow")
+            print(f"  Also install Tesseract OCR: https://github.com/tesseract-ocr/tesseract")
+            print(f"  Falling back to standard extraction (will likely fail)...")
+
+            # Fallback to standard extraction (will probably get nothing)
+            return self._parse_text_based()
+
+        # Use OCR extractor
+        extractor = GBLFormExtractor(str(self.file_path))
+        ocr_result = extractor.extract_with_ocr(dpi=300, enhance=True)
+
+        if not ocr_result.get('success', False):
+            print(f"  ✗ OCR extraction failed: {ocr_result.get('error', 'Unknown error')}")
+            # Fallback to standard extraction
+            return self._parse_text_based()
+
+        print(f"  ✓ OCR extraction successful!")
+        print(f"  OCR text length: {ocr_result.get('ocr_text_length', 0)} chars")
+
+        # Map OCR results to standard data structure
+        self.data["num_pages"] = 1  # Most GBLs are single page
+        self.data["extraction_method"] = "ocr"
+
+        # Build header from OCR results
+        self.data["header"] = {
+            "gbl_number": ocr_result.get("bl_number"),
+            "date_bl_printed": ocr_result.get("date_bl_printed"),
+            "shipment_number": ocr_result.get("shipment_number"),
+            "scac_code": ocr_result.get("scac"),
+            "service_code": ocr_result.get("service_code"),
+            "transportation_company": None,  # OCR may not capture this well
+            "gbloc_codes": [],
+        }
+
+        # Build shipment details from OCR results
+        self.data["shipment"] = {
+            "origin": ocr_result.get("origin_address"),
+            "destination": ocr_result.get("destination_address"),
+            "origin_zip": ocr_result.get("origin_zip"),
+            "destination_zip": ocr_result.get("destination_zip"),
+            "requested_packing_date": ocr_result.get("requested_packing_date") or ocr_result.get("packing_date"),
+            "requested_pickup_date": ocr_result.get("requested_pickup_date") or ocr_result.get("pickup_date"),
+            "required_delivery_date": ocr_result.get("required_delivery_date") or ocr_result.get("delivery_date"),
+            "date_of_receipt": ocr_result.get("date_of_receipt"),
+            "authority": None,
+            "date_of_order": ocr_result.get("date_of_order"),
+            "tariff_lh_rate": ocr_result.get("lh_rate"),
+            "tariff_sit_rate": ocr_result.get("sit_rate"),
+        }
+
+        # Customer info
+        self.data["customer"] = {
+            "name": ocr_result.get("customer_name"),
+            "rank": None,
+            "pay_grade": None,
+            "service_branch": None,
+            "ssn_last_four": None,
+            "issuing_officer": None,
+            "department_agency": None,
+        }
+
+        # Inventory and charges (harder to extract with OCR)
+        self.data["inventory"] = {}
+        self.data["charges"] = {}
+        self.data["administrative_codes"] = {}
+
+        return self.data
+
+    def _parse_text_based(self) -> Dict[str, Any]:
+        """
+        Parse text-based GBL document using standard extraction.
+
+        Returns:
+            Dictionary containing extracted GBL data
+        """
         full_text = ""
         num_pages = 0
 
@@ -107,6 +214,7 @@ class GBLParser:
         # Store raw text for debugging
         self.data["raw_text"] = full_text
         self.data["num_pages"] = num_pages
+        self.data["extraction_method"] = "text-based"
 
         # Extract structured data
         self._extract_header_info(full_text)
